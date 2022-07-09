@@ -3,7 +3,7 @@ using UnityEngine;
 
 public enum Direction
 {
-    foreward,  // z+ direction
+    forward,  // z+ direction
     right,  // +x direction
     backwards,   // -z direction
     left,   // -x direction

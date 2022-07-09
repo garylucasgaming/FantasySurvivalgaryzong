@@ -2,82 +2,116 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Events;
 
 public class World : MonoBehaviour
 {
     public int mapSizeInChunks = 6;
     public int chunkSize = 16, chunkHeight = 100;
-    public int waterThreshold = 50;
-    public float noiseScale = 0.03f;
-    public GameObject chunkPrefab;
+    public int chunkDrawingRange = 8;
+    public int chunkDrawingBuffer = 1;
 
-    Dictionary<Vector3Int, ChunkData> chunkDataDictionary = new Dictionary<Vector3Int, ChunkData>();
-    Dictionary<Vector3Int, ChunkRenderer> chunkDictionary = new Dictionary<Vector3Int, ChunkRenderer>();
+    public GameObject chunkPrefab;
+    public GameObject chunkContainer;
+
+    public TerrainGenerator terrainGenerator;
+    public Vector2Int mapSeedOffset;
+
+    //Dictionary<Vector3Int, ChunkData> chunkDataDictionary = new Dictionary<Vector3Int, ChunkData>();
+    //Dictionary<Vector3Int, ChunkRenderer> chunkDictionary = new Dictionary<Vector3Int, ChunkRenderer>();
+
+    public UnityEvent OnWorldCreated, OnNewChunksGenerated;
+
+    public WorldData worldData
+    {
+        get; private set;
+    }
+    private void Awake()
+    {
+        worldData = new WorldData
+        {
+            chunkHeight = this.chunkHeight,
+            chunkSize = this.chunkSize,
+            chunkDataDictionary = new Dictionary<Vector3Int, ChunkData>(),
+            chunkDictionary = new Dictionary<Vector3Int, ChunkRenderer>()
+
+        };
+    }
 
     public void GenerateWorld()
     {
-        chunkDataDictionary.Clear();
-        foreach(ChunkRenderer chunk in chunkDictionary.Values)
-        {
-            Destroy(chunk.gameObject);
-        }
-        chunkDictionary.Clear();
+        GenerateWorld(Vector3Int.zero);
+    }
+    public void GenerateWorld(Vector3Int position)
+    {
+        WorldGenerationData worldGenerationData = GetChunksToUpdate(position);
 
-        for(int x = 0; x < mapSizeInChunks; x++)
+        foreach (Vector3Int pos in worldGenerationData.chunkPositionsToRemove)
         {
-            for(int z = 0; z < mapSizeInChunks; z++)
-            {
-
-                ChunkData data = new ChunkData(chunkSize, chunkHeight, this, new Vector3Int(x * chunkSize, 0, z * chunkSize));
-                GenerateVoxels(data);
-                chunkDataDictionary.Add(data.worldPosition, data);
-            }
+            WorldDataHelper.RemoveChunk(this, pos);
         }
 
-        foreach(ChunkData data in chunkDataDictionary.Values)
+        foreach (Vector3Int pos in worldGenerationData.chunkDataToRemove)
         {
+            WorldDataHelper.RemoveChunkData(this, pos);
+        }
+
+        foreach (var pos in worldGenerationData.chunkDataPositionsToCreate)
+        {
+            ChunkData data = new ChunkData(chunkSize, chunkHeight, this, pos);
+            ChunkData newData = terrainGenerator.GenerateChunkData(data, mapSeedOffset);
+            worldData.chunkDataDictionary.Add(pos, newData);
+        }
+
+        foreach (var pos in worldGenerationData.chunkPositionsToCreate)
+        {
+            ChunkData data = worldData.chunkDataDictionary[pos];
             MeshData meshData = Chunk.GetChunkMeshData(data);
-            GameObject chunkObject = Instantiate(chunkPrefab, data.worldPosition, Quaternion.identity);
+            GameObject chunkObject = Instantiate(chunkPrefab, pos, Quaternion.identity);
+            chunkObject.transform.SetParent(chunkContainer.transform);
             ChunkRenderer chunkRenderer = chunkObject.GetComponent<ChunkRenderer>();
-            chunkDictionary.Add(data.worldPosition, chunkRenderer);
+            worldData.chunkDictionary.Add(pos, chunkRenderer);
             chunkRenderer.InitializeChunk(data);
             chunkRenderer.UpdateChunk(meshData);
-
         }
+
+        OnWorldCreated?.Invoke();
     }
 
-    private void GenerateVoxels(ChunkData data)
+    internal void RemoveChunk(ChunkRenderer chunk)
     {
-        for(int x = 0; x < data.chunkSize; x++)
+        chunk.gameObject.SetActive(false);
+    }
+
+
+    //GetPositionsThatPlayerSees from tutorial
+    private WorldGenerationData GetChunksToUpdate(Vector3Int updatePoint)
+    {
+        List<Vector3Int> chunkPositionsNearUpdatePoint = WorldDataHelper.GetChunkPositionsNearUpdatePoint(this, updatePoint);
+        List<Vector3Int> chunkDataPositionsNearUpdatePoint= WorldDataHelper.GetChunkDataPositionsNearUpdatePoint(this, updatePoint);
+
+        List<Vector3Int> chunkPositionsToCreate = WorldDataHelper.SelectPositionsToCreate(worldData, chunkPositionsNearUpdatePoint, updatePoint);
+        List<Vector3Int> chunkDataPositionsToCreate = WorldDataHelper.SelectDataPositionsToCreate(worldData, chunkDataPositionsNearUpdatePoint, updatePoint);
+
+        List<Vector3Int> chunkPositionsToRemove = WorldDataHelper.GetUnneededChunks(worldData, chunkPositionsNearUpdatePoint);
+        List<Vector3Int> chunkDataToRemove = WorldDataHelper.GetUnneededData(worldData, chunkDataPositionsNearUpdatePoint);
+
+
+        WorldGenerationData data = new WorldGenerationData
         {
-            for(int z = 0; z < data.chunkSize; z++)
-            {
-                float noiseValue = Mathf.PerlinNoise((data.worldPosition.x + x) * noiseScale, (data.worldPosition.z + z) * noiseScale);
-                int groundPosition = Mathf.RoundToInt(noiseValue * chunkHeight);
-                for(int y = 0; y < chunkHeight; y++)
-                {
-                    BlockType voxelType = BlockType.Dirt;
-                    if(y > groundPosition)
-                    {
-                        if(y < waterThreshold)
-                        {
-                            voxelType = BlockType.Water;
-                        }
-                        else
-                        {
-                            voxelType = BlockType.Air;
-                        }
+            chunkPositionsToCreate = chunkPositionsToCreate,
+            chunkDataPositionsToCreate = chunkDataPositionsToCreate,
+            chunkPositionsToRemove = chunkPositionsToRemove,
+            chunkDataToRemove = chunkDataToRemove
+        };
+        return data;
+    }
 
-                    }
-                    else if(y == groundPosition)
-                    {
-                        voxelType = BlockType.Grass_Dirt;
-                    }
-
-                    Chunk.SetBlock(data, new Vector3Int(x, y, z), voxelType);
-                }
-            }
-        }
+    internal void LoadAdditionalChunksRequest(GameObject updateObject)
+    {
+        Debug.Log("load more chunks");
+        GenerateWorld(Vector3Int.RoundToInt(updateObject.transform.position));
+        OnNewChunksGenerated?.Invoke();
     }
 
     internal BlockType GetBlockFromChunkCoordinates(ChunkData chunkData, int x, int y, int z)
@@ -85,11 +119,27 @@ public class World : MonoBehaviour
         Vector3Int pos = Chunk.ChunkPositionFromBlockCoords(this, x, y, z);
         ChunkData containerChunk = null;
 
-        chunkDataDictionary.TryGetValue(pos, out containerChunk);
+        worldData.chunkDataDictionary.TryGetValue(pos, out containerChunk);
 
         if(containerChunk == null)
             return BlockType.Nothing;
-        Vector3Int blockInCHunkCoordinates = Chunk.GetBlockInChunkCoordinates(containerChunk, new Vector3Int(x, y, z));
-        return Chunk.GetBlockFromChunkCoordinates(containerChunk, blockInCHunkCoordinates);
+        Vector3Int blockInChunkCoordinates = Chunk.GetBlockInChunkCoordinates(containerChunk, new Vector3Int(x, y, z));
+        return Chunk.GetBlockFromChunkCoordinates(containerChunk, blockInChunkCoordinates);
+    }
+
+    public struct WorldGenerationData
+    {
+        public List<Vector3Int> chunkPositionsToCreate;
+        public List<Vector3Int> chunkDataPositionsToCreate;
+        public List<Vector3Int> chunkPositionsToRemove;
+        public List<Vector3Int> chunkDataToRemove;
+    }
+
+    public struct WorldData
+    {
+        public Dictionary<Vector3Int, ChunkData> chunkDataDictionary;
+        public Dictionary<Vector3Int, ChunkRenderer> chunkDictionary;
+        public int chunkSize;
+        public int chunkHeight;
     }
 }

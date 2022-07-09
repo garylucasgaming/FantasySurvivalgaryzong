@@ -8,12 +8,12 @@ public static class Chunk
     {
         for(int index = 0; index < chunkData.blocks.Length; index++)
         {
-            var position = GetPostitionFromIndex(chunkData, index);
+            var position = GetPositionFromIndex(chunkData, index);
             actionToPerform(position.x, position.y, position.z);
         }
     }
 
-    private static Vector3Int GetPostitionFromIndex(ChunkData chunkData, int index)
+    private static Vector3Int GetPositionFromIndex(ChunkData chunkData, int index)
     {
         int x = index % chunkData.chunkSize;
         int y = (index / chunkData.chunkSize) % chunkData.chunkHeight;

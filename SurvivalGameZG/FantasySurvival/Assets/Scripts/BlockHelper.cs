@@ -8,7 +8,7 @@ public static class BlockHelper
     {
         Direction.backwards,
         Direction.down,
-        Direction.foreward,
+        Direction.forward,
         Direction.left,
         Direction.right,
         Direction.up
@@ -66,7 +66,7 @@ public static class BlockHelper
                 meshData.AddVertex(new Vector3(x + 0.5f, y + 0.5f, z - 0.5f), generatesCollider);
                 meshData.AddVertex(new Vector3(x + 0.5f, y - 0.5f, z - 0.5f), generatesCollider);
                 break;
-            case Direction.foreward:
+            case Direction.forward:
                 meshData.AddVertex(new Vector3(x + 0.5f, y - 0.5f, z + 0.5f), generatesCollider);
                 meshData.AddVertex(new Vector3(x + 0.5f, y + 0.5f, z + 0.5f), generatesCollider);
                 meshData.AddVertex(new Vector3(x - 0.5f, y + 0.5f, z + 0.5f), generatesCollider);
